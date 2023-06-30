@@ -1,0 +1,25 @@
+{
+  "name": "movie-booking",
+  "version": "1.0.0",
+  "description": "Movie Booking app",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "devserver": "nodemon src/index.js",
+    "server": "node src/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.0",
+    "kafkajs": "^2.2.4",
+    "mongoose": "^7.3.0",
+    "nodemon": "^2.0.22",
+    "validator": "^13.9.0",
+    "winston": "^3.9.0"
+  }
+}
