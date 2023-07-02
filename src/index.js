@@ -1,12 +1,12 @@
 const express = require("express");
-
+require("dotenv").config();
 require("./db/db");
 
 const userRoutes = require("./routes/users-routes");
 const moviesRoutes = require("./routes/movies-routes");
 const bookTicketRoutes = require("./routes/book-ticket-routes");
 const KafkaConfig = require("./utils/kafka.config");
-const logger = require("./utils/logger.config");
+const logger = require("./utils/logger.config")(module);
 
 const app = express();
 
@@ -33,9 +33,9 @@ app.use("/api", moviesRoutes);
 
 app.use("/api", bookTicketRoutes);
 
-const port = 8000;
+const port = process.env.PORT || 8500;
 
 const KafkaCon = new KafkaConfig();
-// KafkaCon.consume(process.env.KAFKATOPIC, (message) => console.log("Receive message: ", message));
+KafkaCon.consume(process.env.KAFKATOPIC, (message) => console.debug("Receive message from KAFKA Producer: ", message));
 
 app.listen(port, () => logger.info(`app is running in PORT: ${port}`))

@@ -1,23 +1,21 @@
 const Movie = require("../models/movie");
 const Tickets = require("../models/Tickets");
-const produce = require("../utils/kafka-producer");
 const KafkaConfig = require("../utils/kafka.config");
+const logger = require("../utils/logger.config")(module);
 
-const getMovies = async (req, res, next) => {
+const getMovies = async (req, res) => {
     try {
         const movies = await Movie.find({});
-        // await produce(`Fetching movies ${JSON.stringify(movies)}`)
         const KafkaCon = new KafkaConfig();
         KafkaCon.produce(process.env.KAFKATOPIC, `Fetching movies- ${JSON.stringify(movies)}`);
         res.json({ movies });
     }
     catch (err) {
-        console.log(err);
-        next(err)
+        logger.error(err.message);
     }
 }
 
-const createMoviePoster = async (req, res, next) => {
+const createMoviePoster = async (req, res) => {
     const { movieName, theatreName, noOfTickets } = req.body;
     let releaseDate = new Date(req.body.releaseDate);
     const role = req.role;
@@ -29,6 +27,8 @@ const createMoviePoster = async (req, res, next) => {
             const existedMovie = await Movie.findOne({ movieName, theatreName });
             if (!existedMovie) {
                 await createdMovie.save();
+                const KafkaCon = new KafkaConfig();
+                KafkaCon.produce(process.env.KAFKATOPIC, `Created movie- ${JSON.stringify(createdMovie)}`);
                 res.status(201).json({
                     message: `${movieName} has been created successfully`,
                     createdBy: req.user
@@ -40,11 +40,10 @@ const createMoviePoster = async (req, res, next) => {
                 })
         }
         catch (err) {
-            // res.status(500).json({
-            //     message: "Unable to create movie"
-            // });
-            console.log(err);
-            next(err);
+            logger.error(err.message);
+            res.status(500).json({
+                message: "Unable to create movie"
+            });
         }
     }
     else
@@ -87,20 +86,25 @@ const updateMoviePoster = async (req, res, next) => {
 }
 
 
-const deleteMovie = async (req, res, next) => {
+const deleteMovie = async (req, res) => {
     const movieId = req.params.id;
     const role = req.role;
     if (role === "admin") {
         try {
             const deletedMovie = await Movie.findOneAndDelete({ _id: movieId });
             await Tickets.deleteOne({ movieId });
+            logger.info(`The movie ${deletedMovie.movieName} has been deleted`);
+            const KafkaCon = new KafkaConfig();
+            KafkaCon.produce(process.env.KAFKATOPIC, `Deleted movie- ${JSON.stringify(deletedMovie)}`);
             res.json({
                 message: `The movie ${deletedMovie.movieName} from theatre ${deletedMovie.theatreName} has been deleted successfully`
             })
         }
         catch (err) {
-            console.log(err);
-            next(err);
+            logger.error(err.message);
+            res.status(500).json({
+                message: "Unable to delete movie"
+            });
         }
     }
     else
@@ -109,20 +113,24 @@ const deleteMovie = async (req, res, next) => {
         });
 }
 
-const searchByMoviename = async (req, res, next) => {
+const searchByMoviename = async (req, res) => {
     const searchInMovie = req.params.moviename;
-    const searchText = new RegExp(searchInMovie, "i");
+    // const searchText = new RegExp(searchInMovie, "i");
     try {
-        const movies = await Movie.find({ movieName: searchText });
+        // const movies = await Movie.find({ movieName: searchText });
+        const movies = await Movie.find({ movieName: { $regex: searchInMovie, $options: 'i' } });
         const KafkaCon = new KafkaConfig();
         KafkaCon.produce(process.env.KAFKATOPIC, `Searched movies- ${JSON.stringify(movies)}`);
+        logger.info(`You have searched a movie with name ${searchInMovie}`);
         res.json({
             movies
         });
     }
     catch (err) {
-        console.log(err);
-        next(err);
+        logger.error(err);
+        res.status(500).json({
+            message: "Unable to search movie"
+        });
     }
 }
 

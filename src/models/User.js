@@ -5,17 +5,18 @@ const userSchema = new Schema({
     firstname: {
         type: String,
         required: true,
+        minlength: 3
     },
     lastname: {
         type: String,
         required: true,
+        minlength: 3
     },
     loginId: {
         type: String,
         unique: true,
         required: true,
-        trim: true,
-        lowercase: true,
+        minlength: [5, "LoginId should contains 5 characters long"]
     },
     email: {
         type: String,
@@ -31,14 +32,9 @@ const userSchema = new Schema({
     },
     password: {
         type: String,
-        trim: true,
-        minlength: 6,
+        minlength: [6, "password should contains 6 characters long"],
         required: true,
-        validate(value) {
-            if (value.toLowerCase().includes('password')) {
-                throw new Error('Password should not contain word: password');
-            }
-        },
+        trim: true
     },
     role: {
         type: String,
@@ -46,13 +42,12 @@ const userSchema = new Schema({
         enum: ['guest', 'user', 'admin'],
     },
     contactNumber: {
-        type: String,
+        type: Number,
         required: true,
-        validate(value) {
-            if (!validator.isMobilePhone(value)) {
-                throw new Error('Contact Number is invalid');
-            }
-        },
+        validate: {
+            validator: (phone) => /\d{10}/.test(phone),
+            message: props => `${props.value} is not a valid contact number!`
+        }
     }
 });
 

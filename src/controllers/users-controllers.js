@@ -1,10 +1,9 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-require("dotenv").config();
 const { validationResult } = require("express-validator");
 const User = require("../models/User");
-const HttpError = require("../models/http-error");
-const logger = require("../utils/logger.config");
+const KafkaConfig = require("../utils/kafka.config");
+const logger = require("../utils/logger.config")(module);
 
 const getUsers = async (req, res) => {
     let users;
@@ -21,14 +20,13 @@ const getUsers = async (req, res) => {
 };
 
 const registration = async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        console.log(errors);
-        return next(
-            new HttpError("Invalid inputs passed, please check your data", 422)
-        );
-    }
     const { firstname, lastname, loginId, email, password, confirmPassword, contactNumber } = req.body;
+
+    if (password.length < 6)
+        return res.status(400).json({
+            success: 0,
+            message: "Password should contains atleast 6 characters",
+        });
 
     if (password !== confirmPassword)
         return res.status(400).json({
@@ -36,46 +34,36 @@ const registration = async (req, res) => {
             message: "password did not match, please re-enter password",
         });
 
-    let existingUSer;
     try {
-        existingUSer = await User.findOne({ loginId, email });
-    } catch (err) {
-        return next(
-            new HttpError("Signing up failed, Please try again later.", 500)
-        );
-    }
-    if (existingUSer)
-        return next(
-            new HttpError(
-                "could not signing in, User already exists, please login with the credentials",
-                422
-            )
-        );
-
-    let hashedPassword;
-    try {
-        hashedPassword = await bcrypt.hash(password, 12);
-    } catch (err) {
-        return next(new HttpError("Could not create user please try again.", 500));
-    }
-    let createdUser = new User({
-        firstname, lastname, loginId, email, password: hashedPassword, role: "user", contactNumber
-    });
-    try {
+        const KafkaCon = new KafkaConfig();
+        const existingUSer = await User.findOne({ loginId, email });
+        if (existingUSer)
+            return res.status(422).json({
+                message: "could not signing in, User already exists, please login with the credentials"
+            });
+        const hashedPassword = await bcrypt.hash(password, 12);
+        const createdUser = new User({
+            firstname, lastname, loginId, email, password: hashedPassword, role: "user", contactNumber
+        });
         await createdUser.save();
+        logger.debug(`User - ${createdUser.loginId} has been created successfully`);
+        KafkaCon.produce(process.env.KAFKATOPIC, `User - ${createdUser.loginId} has been created`);
+        res
+            .status(201)
+            .json({ message: "User is created successfully", email: createdUser.email, loginId: createdUser.loginId, role: createdUser.role });
     } catch (err) {
-        console.log(err);
-        return next(new HttpError("Signing Up failed, please try again.", 500));
+        logger.error(err.message);
+        res.status(400).json({
+            message: "Signing up failed, Please try again later.",
+            errors: err.message
+        });
     }
-
-    res
-        .status(201)
-        .json({ message: "User is created successfully", email: createdUser.email, loginId: createdUser.loginId, role: createdUser.role });
 };
 
 const login = async (req, res) => {
     const { loginId, password } = req.body;
     try {
+        const KafkaCon = new KafkaConfig();
         const existingUSer = await User.findOne({ loginId });
         if (!existingUSer)
             return res.status(403).json({
@@ -95,6 +83,7 @@ const login = async (req, res) => {
             { expiresIn: "1h" }
         );
         logger.info("Login Successfull");
+        KafkaCon.produce(process.env.KAFKATOPIC, `${existingUSer.loginId} logged in with token: ${token}`);
         res.json({
             message: "Login Successfull",
             role: existingUSer.role,
@@ -102,20 +91,21 @@ const login = async (req, res) => {
             token: token,
         });
     } catch (err) {
-        logger.error(err.toString());
+        logger.error(err.message);
         res.status(400).json({
             message: "An unknown error occured, login failed, please try again."
         });
     }
 };
 
-const resetPassword = async (req, res, next) => {
+const resetPassword = async (req, res) => {
     try {
         const { loginId, newPassword, confirmNewPassword } = req.body;
         const user = await User.findOne({ loginId });
         if (newPassword === confirmNewPassword) {
             user.password = newPassword;
             await user.save();
+            logger.info(`Password has been reset for user ${loginId}`);
         }
         else {
             logger.warn("entered password and confirm password did not match. try again");
@@ -134,7 +124,39 @@ const resetPassword = async (req, res, next) => {
     }
 }
 
+const deleteUser = async (req, res) => {
+    const role = req.role;
+    const toBeDeleteUserId = req.params.loginId;
+    try {
+        const KafkaCon = new KafkaConfig();
+        if (role === "admin") {
+            const deletedUser = await User.findOneAndDelete({ loginId: toBeDeleteUserId });
+            if (!deletedUser)
+                return res.status(404).json({
+                    message: `Could not find user ${toBeDeleteUserId}`
+                });
+            logger.info(`${toBeDeleteUserId} has been deleted`);
+            KafkaCon.produce(process.env.KAFKATOPIC, `${toBeDeleteUserId} has been deleted`);
+            res.json({
+                message: `${toBeDeleteUserId} has been deleted successfully`
+            });
+        }
+        else
+            return res.status(403).json({
+                message: "You have no access to delete a user"
+            });
+    }
+    catch (err) {
+        logger.error(err.message);
+        res.status(500).json({
+            message: `Could not delete the user ${toBeDeleteUserId}`
+        });
+    }
+};
+
+
 exports.getUsers = getUsers;
 exports.registration = registration;
 exports.login = login;
 exports.resetPassword = resetPassword;
+exports.deleteUser = deleteUser;
