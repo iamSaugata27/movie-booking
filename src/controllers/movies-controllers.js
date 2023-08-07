@@ -6,9 +6,19 @@ const logger = require("../utils/logger.config")(module);
 const getMovies = async (req, res) => {
     try {
         const movies = await Movie.find({});
+        const allMovies = [];
+        for (const movie of movies) {
+            const ticket = await Tickets.findOne({ movieId: movie.id });
+            let movieObj = {};
+            if (ticket)
+                movieObj = { ...movie._doc, status: ticket.availablelityStatus };
+            else
+                movieObj = { ...movie._doc, status: "Booking Open" };
+            allMovies.push(movieObj);
+        }
         const KafkaCon = new KafkaConfig();
-        KafkaCon.produce(process.env.KAFKATOPIC, `Fetching movies- ${JSON.stringify(movies)}`);
-        res.json({ movies });
+        //KafkaCon.produce(process.env.KAFKATOPIC, `Fetching movies- ${JSON.stringify(movies)}`);
+        res.json(allMovies);
     }
     catch (err) {
         logger.error(err.message);

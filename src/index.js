@@ -36,6 +36,6 @@ app.use("/api", bookTicketRoutes);
 const port = process.env.PORT || 8500;
 
 const KafkaCon = new KafkaConfig();
-KafkaCon.consume(process.env.KAFKATOPIC, (message) => console.debug("Receive message from KAFKA Producer: ", message));
+//KafkaCon.consume(process.env.KAFKATOPIC, (message) => console.debug("Receive message from KAFKA Producer: ", message));
 
 app.listen(port, () => logger.info(`app is running in PORT: ${port}`))
