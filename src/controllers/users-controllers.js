@@ -50,7 +50,7 @@ const registration = async (req, res) => {
         KafkaCon.produce(process.env.KAFKATOPIC, `User - ${createdUser.loginId} has been created`);
         res
             .status(201)
-            .json({ message: "User is created successfully", email: createdUser.email, loginId: createdUser.loginId, role: createdUser.role });
+            .json({ message: "Registration is succeded, LoginId is unique, it should be remembered and is required to login", email: createdUser.email, loginId: createdUser.loginId, role: createdUser.role });
     } catch (err) {
         logger.error(err.message);
         res.status(400).json({
