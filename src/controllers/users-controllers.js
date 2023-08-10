@@ -36,10 +36,10 @@ const registration = async (req, res) => {
 
     try {
         const KafkaCon = new KafkaConfig();
-        const existingUSer = await User.findOne({ loginId, email });
+        const existingUSer = await User.findOne({ loginId });
         if (existingUSer)
             return res.status(422).json({
-                message: "could not signing in, User already exists, please login with the credentials"
+                errors: "Could not signing in, User already exists, try using different LoginId"
             });
         const hashedPassword = await bcrypt.hash(password, 12);
         const createdUser = new User({
@@ -47,15 +47,16 @@ const registration = async (req, res) => {
         });
         await createdUser.save();
         logger.debug(`User - ${createdUser.loginId} has been created successfully`);
-        KafkaCon.produce(process.env.KAFKATOPIC, `User - ${createdUser.loginId} has been created`);
+        //KafkaCon.produce(process.env.KAFKATOPIC, `User - ${createdUser.loginId} has been created`);
         res
             .status(201)
-            .json({ message: "Registration is succeded, LoginId is unique, it should be remembered and is required to login", email: createdUser.email, loginId: createdUser.loginId, role: createdUser.role });
+            .json({ message: "Registration is succeded, keep remember your LoginId, it is required to login", loginId: createdUser.loginId });
     } catch (err) {
         logger.error(err.message);
+        const error = err.message.includes('email') ? "Email already taken, try using different email" : err.message;
         res.status(400).json({
             message: "Signing up failed, Please try again later.",
-            errors: err.message
+            errors: error
         });
     }
 };
