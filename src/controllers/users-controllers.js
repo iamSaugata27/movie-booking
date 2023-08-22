@@ -84,7 +84,7 @@ const login = async (req, res) => {
             { expiresIn: "1h" }
         );
         logger.info("Login Successfull");
-        KafkaCon.produce(process.env.KAFKATOPIC, `${existingUSer.loginId} logged in with token: ${token}`);
+        //KafkaCon.produce(process.env.KAFKATOPIC, `${existingUSer.loginId} logged in with token: ${token}`);
         res.json({
             message: "Login Successfull",
             role: existingUSer.role,

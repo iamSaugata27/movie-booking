@@ -8,8 +8,13 @@ const bookTicket = async (req, res) => {
     const moviename = req.params.moviename;
     const movieId = req.params.id;
     const noOfSeatsWantToBook = req.body.seatCount;
-    const choicedSeatNumbers = req.body.seatNumbers.split(',').map((seat) => parseInt(seat));
+    const seatNumbers = req.body.seatNumbers.slice(-1) === ',' ? req.body.seatNumbers.slice(0, -1) : req.body.seatNumbers;
+    const choicedSeatNumbers = seatNumbers.split(',').map((seat) => parseInt(seat));
     const loggedInUserid = req.userid;
+    if (noOfSeatsWantToBook !== choicedSeatNumbers.length)
+        return res.status(400).json({
+            error: 'Seems your booked seat counts did not match with the number of your choiced seats!'
+        });
     try {
         const KafkaCon = new KafkaConfig();
         const movie = await Movie.findById(movieId);
@@ -32,7 +37,7 @@ const bookTicket = async (req, res) => {
                 existedMovieTicket.noOfTicketsBooked = noOfTicketsAlreadyBooked + noOfSeatsWantToBook;
                 await existedMovieTicket.save();
                 logger.info("Movie booked succcessfully");
-                KafkaCon.produce(process.env.KAFKATOPIC, `Existed movie ticket updated- ${JSON.stringify(existedMovieTicket)}`);
+                //KafkaCon.produce(process.env.KAFKATOPIC, `Existed movie ticket updated- ${JSON.stringify(existedMovieTicket)}`);
             }
             else {
                 const ticketBook = new Tickets({
@@ -40,21 +45,20 @@ const bookTicket = async (req, res) => {
                 });
                 await ticketBook.save();
                 logger.info("Movie booked succcessfully");
-                KafkaCon.produce(process.env.KAFKATOPIC, `Booked ticket- ${JSON.stringify(ticketBook)}`);
+                //KafkaCon.produce(process.env.KAFKATOPIC, `Booked ticket- ${JSON.stringify(ticketBook)}`);
             }
             return res.json({
-                message: "Movie booked successfully"
+                message: "Congratulations, Your booking succeded"
             })
         }
         else
             return res.status(400).json({
-                message: `The seat no. ${alreadyBookedSeats.join(',')} ${alreadyBookedSeats.length > 1 ? 'are' : 'is'} already booked, please try with another seats`
+                error: `The seat no. ${alreadyBookedSeats.join(',')} ${alreadyBookedSeats.length > 1 ? 'are' : 'is'} already booked, please try with another seats`
             });
     }
     catch (err) {
         logger.error(err.message);
         res.status(400).json({
-            message: "Unable to book movie",
             error: err.message
         });
     }

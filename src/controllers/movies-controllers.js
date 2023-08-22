@@ -6,16 +6,7 @@ const logger = require("../utils/logger.config")(module);
 const getMovies = async (req, res) => {
     try {
         const movies = await Movie.find({});
-        const allMovies = [];
-        for (const movie of movies) {
-            const ticket = await Tickets.findOne({ movieId: movie.id });
-            let movieObj = {};
-            if (ticket)
-                movieObj = { ...movie._doc, status: ticket.availablelityStatus };
-            else
-                movieObj = { ...movie._doc, status: "Booking Open" };
-            allMovies.push(movieObj);
-        }
+        const allMovies = await getDetailedMovies(movies);
         const KafkaCon = new KafkaConfig();
         //KafkaCon.produce(process.env.KAFKATOPIC, `Fetching movies- ${JSON.stringify(movies)}`);
         res.json(allMovies);
@@ -26,8 +17,8 @@ const getMovies = async (req, res) => {
 }
 
 const createMoviePoster = async (req, res) => {
-    const { movieName, theatreName, noOfTickets } = req.body;
-    let releaseDate = new Date(req.body.releaseDate);
+    const { movieName, theatreName, noOfTickets, releaseDate } = req.body;
+    // let releaseDate = new Date(req.body.releaseDate);
     const role = req.role;
     if (role === "admin") {
         const createdMovie = new Movie({
@@ -37,22 +28,24 @@ const createMoviePoster = async (req, res) => {
             const existedMovie = await Movie.findOne({ movieName, theatreName });
             if (!existedMovie) {
                 await createdMovie.save();
+                logger.info(`The movie ${movieName} has been created by ${req.user}`);
                 const KafkaCon = new KafkaConfig();
-                KafkaCon.produce(process.env.KAFKATOPIC, `Created movie- ${JSON.stringify(createdMovie)}`);
+                //KafkaCon.produce(process.env.KAFKATOPIC, `Created movie- ${JSON.stringify(createdMovie)}`);
                 res.status(201).json({
-                    message: `${movieName} has been created successfully`,
+                    message: `The movie poster ${movieName} has been added`,
                     createdBy: req.user
                 });
             }
             else
                 res.status(400).json({
-                    message: 'Movie already exists in the same theatre, try with another movie name or theatre name'
+                    error: 'Movie already exists in the same theatre, try with another movie name or theatre name'
                 })
         }
         catch (err) {
             logger.error(err.message);
             res.status(500).json({
-                message: "Unable to create movie"
+                message: "Unable to create movie",
+                error: err.message
             });
         }
     }
@@ -123,18 +116,32 @@ const deleteMovie = async (req, res) => {
         });
 }
 
+
+const getDetailedMovies = async (movies) => {
+    const allMovies = [];
+    for (const movie of movies) {
+        const ticket = await Tickets.findOne({ movieId: movie.id });
+        let movieObj = {};
+        if (ticket)
+            movieObj = { ...movie._doc, status: ticket.availablelityStatus };
+        else
+            movieObj = { ...movie._doc, status: "Booking Open" };
+        allMovies.push(movieObj);
+    }
+    return allMovies;
+}
+
 const searchByMoviename = async (req, res) => {
     const searchInMovie = req.params.moviename;
     // const searchText = new RegExp(searchInMovie, "i");
     try {
         // const movies = await Movie.find({ movieName: searchText });
         const movies = await Movie.find({ movieName: { $regex: searchInMovie, $options: 'i' } });
+        const searchedMovies = await getDetailedMovies(movies);
         const KafkaCon = new KafkaConfig();
-        KafkaCon.produce(process.env.KAFKATOPIC, `Searched movies- ${JSON.stringify(movies)}`);
+        //KafkaCon.produce(process.env.KAFKATOPIC, `Searched movies- ${JSON.stringify(movies)}`);
         logger.info(`You have searched a movie with name ${searchInMovie}`);
-        res.json({
-            movies
-        });
+        res.json(searchedMovies);
     }
     catch (err) {
         logger.error(err);
