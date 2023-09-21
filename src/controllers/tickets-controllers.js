@@ -9,6 +9,7 @@ const bookTicket = async (req, res) => {
     const movieId = req.params.id;
     const noOfSeatsWantToBook = req.body.seatCount;
     const seatNumbers = req.body.seatNumbers.slice(-1) === ',' ? req.body.seatNumbers.slice(0, -1) : req.body.seatNumbers;
+    const seatNumberExceedsSeatCapacityNumber = [];
     const choicedSeatNumbers = seatNumbers.split(',').map((seat) => parseInt(seat));
     const loggedInUserid = req.userid;
     if (noOfSeatsWantToBook !== choicedSeatNumbers.length)
@@ -18,6 +19,14 @@ const bookTicket = async (req, res) => {
     try {
         const KafkaCon = new KafkaConfig();
         const movie = await Movie.findById(movieId);
+        choicedSeatNumbers.forEach((seatNum) => {
+            if (seatNum > movie?.noOfTickets)
+                seatNumberExceedsSeatCapacityNumber.push(seatNum);
+        });
+        if (seatNumberExceedsSeatCapacityNumber.length > 0)
+            return res.status(400).json({
+                error: `The seat no. ${seatNumberExceedsSeatCapacityNumber.join(',')} ${seatNumberExceedsSeatCapacityNumber.length > 1 ? 'are' : 'is'} exceeded from the number of tickets range i.e ${movie.noOfTickets}, please book seats below the ticket range number `
+            });
         const alreadyBookedSeats = choicedSeatNumbers.filter(choicedSeat => movie.seatNumber.includes(choicedSeat));
         const existedMovieTicket = await Tickets.findOne({ movieId });
         let noOfTicketsAlreadyBooked = existedMovieTicket?.noOfTicketsBooked ? existedMovieTicket?.noOfTicketsBooked : 0;
@@ -76,30 +85,52 @@ const updateTicketStatus = async (req, res) => {
             const ticket = await Tickets.findOne({ movieId });
             const movie = await Movie.findById(movieId);
             const noOfAvailableTickets = movie?.noOfTickets - ticket?.noOfTicketsBooked;
+            let isStatusAlreadyUpdated = false;
             if (ticket) {
-                if (noOfAvailableTickets == 0)
-                    ticket.availablelityStatus = "SOLD OUT";
-                else
-                    ticket.availablelityStatus = "BOOK ASAP";
-                await ticket.save();
-                logger.info(`The availability status of ${moviename} has been updated successfully`);
-                KafkaCon.produce(process.env.KAFKATOPIC, `Ticket availability status updated successfully`);
+                if (noOfAvailableTickets == 0) {
+                    if (ticket.availablelityStatus === "SOLD OUT")
+                        isStatusAlreadyUpdated = true;
+                    else
+                        ticket.availablelityStatus = "SOLD OUT";
+                }
+                else if (noOfAvailableTickets > movie.noOfTickets / 2) {
+                    if (ticket.availablelityStatus === "BOOKING OPEN")
+                        isStatusAlreadyUpdated = true;
+                    else
+                        ticket.availablelityStatus = "BOOKING OPEN";
+                }
+                else {
+                    if (ticket.availablelityStatus === "BOOK ASAP")
+                        isStatusAlreadyUpdated = true;
+                    else
+                        ticket.availablelityStatus = "BOOK ASAP";
+                }
             }
+            else
+                return res.status(400).json({
+                    error: "Can't update status since no ticket has been booked for this movie!"
+                })
+            if (isStatusAlreadyUpdated)
+                return res.status(400).json({
+                    error: "Can't reflect the updation status since the status is already updated with respect to ticket availability!"
+                })
+            await ticket.save();
+            logger.info(`The availability status of ${moviename} has been updated successfully`);
+            //KafkaCon.produce(process.env.KAFKATOPIC, `Ticket availability status updated successfully`);
             res.json({
                 message: `The availability status of ${moviename} has been updated successfully`,
-                ticketInfo: ticket
             });
         }
         catch (err) {
             logger.error(err.message);
             res.status(500).json({
-                message: "An unknown error occured to update movie status"
+                error: "An unknown error occured to update movie status"
             })
         }
     }
     else
         return res.status(403).json({
-            message: "You have no access to update the movie availability status"
+            error: "You have no access to update the movie availability status"
         });
 }
 
@@ -120,38 +151,36 @@ const bookedMoviesByLoggedinUser = async (req, res) => {
                 }
             }]
         );
-        const bookedMoviesDeatil = [];
-        if (ticket) {
-            // ticket.forEach(object =>
-            //     object.bookedUsers = object.bookedUsers.filter(user => user.userid.id === loggedInUserid)
-            // );
-            ticket.forEach(object => {
-                const movieObject = {
-                    movieName: '',
-                    theatreName: '',
-                    releaseDate: '',
-                    loginId: '',
-                    bookedSeats: []
-                };
-                movieObject.movieName = object.movieId.movieName;
-                movieObject.theatreName = object.movieId.theatreName;
-                movieObject.releaseDate = object.movieId.releaseDate;
-                object.bookedUsers.forEach(userObj => {
-                    if (userObj.userid.id === loggedInUserid) {
-                        movieObject.loginId = userObj.userid.loginId;
-                        movieObject.bookedSeats = userObj.seatNumbers;
-                    }
-                });
-                bookedMoviesDeatil.push(movieObject);
+        const bookedTickets = [];
+        // if (ticket) {
+        // ticket.forEach(object =>
+        //     object.bookedUsers = object.bookedUsers.filter(user => user.userid.id === loggedInUserid)
+        // );
+        ticket.forEach(object => {
+            const movieObject = {
+                movieName: '',
+                theatreName: '',
+                releaseDate: '',
+                loginId: '',
+                bookedSeats: []
+            };
+            movieObject.movieName = object.movieId.movieName;
+            movieObject.theatreName = object.movieId.theatreName;
+            movieObject.releaseDate = object.movieId.releaseDate;
+            object.bookedUsers.forEach(userObj => {
+                if (userObj.userid.id === loggedInUserid) {
+                    movieObject.loginId = userObj.userid.loginId;
+                    movieObject.bookedSeats = userObj.seatNumbers;
+                }
             });
-            return res.json({
-                bookedTickets: bookedMoviesDeatil
-            });
-        }
-        else
-            return res.status(404).json({
-                message: "Sorry, there is no ticket booked by you, Hurry up!! to book a ticket"
-            });
+            bookedTickets.push(movieObject);
+        });
+        return res.json(bookedTickets);
+        // }
+        // else
+        //     return res.status(404).json({
+        //         message: "Sorry, there is no ticket booked by you, Hurry up!! to book a ticket"
+        //     });
     }
     catch (err) {
         logger.error(err.message);

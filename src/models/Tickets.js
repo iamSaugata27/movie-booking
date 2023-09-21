@@ -23,7 +23,7 @@ const ticketSchema = new Schema({
     },
     availablelityStatus: {
         type: String,
-        default: "Booking Open"
+        default: "BOOKING STARTED"
     }
 });
 

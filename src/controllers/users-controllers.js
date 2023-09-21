@@ -1,22 +1,30 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { validationResult } = require("express-validator");
+const cryptoJS = require("crypto-js");
 const User = require("../models/User");
+const OTPModel = require("../models/OTP");
 const KafkaConfig = require("../utils/kafka.config");
+const sendEmail = require("../utils/sendEmail");
 const logger = require("../utils/logger.config")(module);
 
 const getUsers = async (req, res) => {
-    let users;
-    try {
-        users = await User.find({}, "-password");
-        logger.info(`users -> ${JSON.stringify(users)}`);
-    } catch (err) {
-        logger.error(err.toString());
-        res.status(500).json({
-            message: "Fetching users failed, Please try again later."
-        });
+    const role = req.role;
+    if (role === "admin") {
+        try {
+            const users = await User.find({}, 'firstname lastname loginId email role contactNumber -_id');
+            logger.info(`users -> ${JSON.stringify(users)}`);
+            return res.json(users.map((user) => user.toObject({ getters: true })));
+        } catch (err) {
+            logger.error(err.toString());
+            res.status(500).json({
+                message: "Fetching users failed, Please try again later."
+            });
+        }
     }
-    res.json({ users: users.map((user) => user.toObject({ getters: true })) });
+    else
+        return res.status(403).json({
+            error: "You have no access to see all the users"
+        });
 };
 
 const registration = async (req, res) => {
@@ -81,7 +89,7 @@ const login = async (req, res) => {
         const token = jwt.sign(
             { userid: existingUSer.id, loginId: existingUSer.loginId, role: existingUSer.role },
             process.env.JWT_KEY,
-            { expiresIn: "1h" }
+            { expiresIn: process.env.JWT_EXPIRES_IN }
         );
         logger.info("Login Successfull");
         //KafkaCon.produce(process.env.KAFKATOPIC, `${existingUSer.loginId} logged in with token: ${token}`);
@@ -102,16 +110,15 @@ const login = async (req, res) => {
 const resetPassword = async (req, res) => {
     try {
         const { loginId, newPassword, confirmNewPassword } = req.body;
-        const user = await User.findOne({ loginId });
         if (newPassword === confirmNewPassword) {
-            user.password = newPassword;
-            await user.save();
+            const hashedPassword = await bcrypt.hash(newPassword, 12);
+            await User.findOneAndUpdate({ loginId }, { $set: { password: hashedPassword } });
             logger.info(`Password has been reset for user ${loginId}`);
         }
         else {
-            logger.warn("entered password and confirm password did not match. try again");
+            logger.warn("entered password and confirmed password did not match. try again");
             return res.status(400).json({
-                message: "entered password and confirm password did not match"
+                message: "entered password and confirmed password did not match"
             })
         }
         res.json({
@@ -120,8 +127,62 @@ const resetPassword = async (req, res) => {
     }
     catch (err) {
         res.status(400).json({
-            message: "entered password and confirm password did not match"
+            message: "An unexpected error occured to change your password, try again!"
         })
+    }
+}
+
+const forgotPassword = async (req, res) => {
+    const userIdentity = req.params.userIdentity;
+    try {
+        const user = await User.findOne({ $or: [{ loginId: userIdentity }, { email: userIdentity }] });
+        if (!user)
+            return res.status(404).json({
+                error: `No user is found for the given loginId, please enter a proper email or loginId`
+            });
+        const OTP = Math.round(Math.random() * 10000).toString().padStart(4, '0');   //using 0000 and 4 for making four digit OTP
+        const cryptedOTP = cryptoJS.AES.encrypt(OTP, process.env.OTP_SECRET).toString();
+        const expiredAt = new Date(new Date().setMinutes(new Date().getMinutes() + parseInt(process.env.OTP_EXPIRY_TIME_IN_MINUTES)));
+        await OTPModel.findOneAndUpdate({ loginId: user.loginId }, { $set: { OTP: cryptedOTP, expiredAt } }, { upsert: true, new: true });
+        await sendEmail(OTP, user.email);
+        return res.json({
+            message: "OTP sent successfully",
+            loginId: user.loginId
+        });
+    }
+    catch (err) {
+        console.log(err);
+        res.status(500).json({
+            error: "Some unexpected error occured to recover your ID"
+        });
+    }
+}
+
+const verifyOTP = async (req, res) => {
+    const { loginId, enteredOTP } = req.body;
+    try {
+        const userOTP = await OTPModel.findOne({ loginId });
+        if (!userOTP)
+            return res.status(404).json({
+                error: `No user's OTP is found for the given loginId`
+            });
+        const bytes = cryptoJS.AES.decrypt(userOTP.OTP, process.env.OTP_SECRET);
+        const originalOTP = bytes.toString(cryptoJS.enc.Utf8);
+        const isOTPexpired = new Date() <= userOTP.expiredAt ? false : true;
+        if (enteredOTP === originalOTP && !isOTPexpired)
+            return res.json({
+                OTPmatched: true
+            });
+        else
+            return res.json({
+                OTPmatched: false
+            });
+    }
+    catch (err) {
+        console.log(err);
+        res.status(500).json({
+            error: "Some unexpected error occured to verify your ID"
+        });
     }
 }
 
@@ -155,9 +216,30 @@ const deleteUser = async (req, res) => {
     }
 };
 
+const makeAsAdmin = async (req, res) => {
+    const role = req.role;
+    const loginId = req.body.loginId;
+    if (role === "admin") {
+        try {
+            await User.findOneAndUpdate({ loginId }, { $set: { role: 'admin' } });
+            logger.info(`${req.user} made ${loginId} as an admin`);
+            res.json({ message: `${loginId}'s role has been updated successfully!` });
+        }
+        catch (err) {
+            logger.error(err.message);
+            res.status(500).json({
+                message: `Could not make admin, try again!`
+            });
+        }
+    }
+}
+
 
 exports.getUsers = getUsers;
 exports.registration = registration;
 exports.login = login;
 exports.resetPassword = resetPassword;
 exports.deleteUser = deleteUser;
+exports.forgotPassword = forgotPassword;
+exports.verifyOTP = verifyOTP;
+exports.makeAsAdmin = makeAsAdmin;

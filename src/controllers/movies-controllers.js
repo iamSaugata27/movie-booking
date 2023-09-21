@@ -7,6 +7,7 @@ const getMovies = async (req, res) => {
     try {
         const movies = await Movie.find({});
         const allMovies = await getDetailedMovies(movies);
+        logger.info(`Total number of movies fetched: ${allMovies.length}`);
         const KafkaCon = new KafkaConfig();
         //KafkaCon.produce(process.env.KAFKATOPIC, `Fetching movies- ${JSON.stringify(movies)}`);
         res.json(allMovies);
@@ -98,7 +99,7 @@ const deleteMovie = async (req, res) => {
             await Tickets.deleteOne({ movieId });
             logger.info(`The movie ${deletedMovie.movieName} has been deleted`);
             const KafkaCon = new KafkaConfig();
-            KafkaCon.produce(process.env.KAFKATOPIC, `Deleted movie- ${JSON.stringify(deletedMovie)}`);
+            //KafkaCon.produce(process.env.KAFKATOPIC, `Deleted movie- ${JSON.stringify(deletedMovie)}`);
             res.json({
                 message: `The movie ${deletedMovie.movieName} from theatre ${deletedMovie.theatreName} has been deleted successfully`
             })
@@ -106,13 +107,13 @@ const deleteMovie = async (req, res) => {
         catch (err) {
             logger.error(err.message);
             res.status(500).json({
-                message: "Unable to delete movie"
+                error: "Unable to delete movie"
             });
         }
     }
     else
         return res.status(403).json({
-            message: "You have no access to delete a movie"
+            error: "You have no access to delete a movie"
         });
 }
 
@@ -125,7 +126,7 @@ const getDetailedMovies = async (movies) => {
         if (ticket)
             movieObj = { ...movie._doc, status: ticket.availablelityStatus };
         else
-            movieObj = { ...movie._doc, status: "Booking Open" };
+            movieObj = { ...movie._doc, status: "BOOKING STARTED" };
         allMovies.push(movieObj);
     }
     return allMovies;
