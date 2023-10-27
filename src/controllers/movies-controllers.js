@@ -1,4 +1,4 @@
-const Movie = require("../models/movie");
+const Movie = require("../models/Movie");
 const Tickets = require("../models/Tickets");
 const KafkaConfig = require("../utils/kafka.config");
 const logger = require("../utils/logger.config")(module);

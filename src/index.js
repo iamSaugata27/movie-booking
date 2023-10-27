@@ -33,7 +33,7 @@ app.use("/api", moviesRoutes);
 
 app.use("/api", bookTicketRoutes);
 
-const port = process.env.PORT || 8500;
+const port = 8000;
 
 const KafkaCon = new KafkaConfig();
 //KafkaCon.consume(process.env.KAFKATOPIC, (message) => console.debug("Receive message from KAFKA Producer: ", message));
